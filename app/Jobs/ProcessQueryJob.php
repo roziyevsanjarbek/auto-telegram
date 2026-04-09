@@ -41,22 +41,13 @@ class ProcessQueryJob implements ShouldQueue
         );
 
         // 🔥 STATUS = 17 (atmen)
-        if ($query->status == 17 && !$query->is_finished) {
+        $query = Query::where('custom_id', $this->item['custom_id'])->first();
 
-            try {
-                Http::timeout(10)->post('https://your-api-url', [
-                    'id' => $query->custom_id,
-                    'count' => $query->count,
-                ]);
+        if ($query && $query->status == 17 && !$query->is_finished) {
 
-                // ✅ yuborildi → finish qilamiz
-                $query->update([
-                    'is_finished' => true
-                ]);
-
-            } catch (\Throwable $e) {
-                \Log::error("API send failed: " . $e->getMessage());
-            }
+            Query::where('id', $query->id)
+                ->where('is_finished', false)
+                ->update(['is_finished' => true]);
         }
     }
 }

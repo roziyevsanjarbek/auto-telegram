@@ -35,4 +35,8 @@ return [
         ],
     ],
 
+    'api' => [
+        'token' => env('EXTERNAL_API_TOKEN'),
+    ],
+
 ];
