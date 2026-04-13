@@ -44,8 +44,19 @@ class MyEventHandler extends EventHandler
             return;
         }
 
-        $group = Group::where('telegram_id', $telegramGroupId)->first();
-        if (!$group) return;
+        $name = 'Unknown';
+
+        try {
+            $fullInfo = $this->getInfo($peer);
+            $name = $fullInfo['title'] ?? 'Unknown';
+        } catch (\Throwable $e) {
+            \Log::warning('Group info error: ' . $e->getMessage());
+        }
+
+        $group = Group::firstOrCreate(
+            ['telegram_id' => $telegramGroupId],
+            ['title' => $name]
+        );
 
         preg_match_all('/\b[A-Z]{3}\d+\b/', $message, $matches);
 
