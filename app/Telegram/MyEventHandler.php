@@ -53,9 +53,27 @@ class MyEventHandler extends EventHandler
 
     \Log::info('MESSAGE TEXT', ['text' => $message]);
 
+    $name = 'Unknown';
+    $link = null;
+
+    try {
+        $info = $this->getInfo($peer);
+
+        $name = $info['title'] ?? 'Unknown';
+
+        if (!empty($info['username'])) {
+            $link = 'https://t.me/' . $info['username'];
+        }
+    } catch (\Throwable $e) {
+        \Log::warning('Group info error: ' . $e->getMessage());
+    }
+
     $group = Group::firstOrCreate(
         ['telegram_id' => $telegramGroupId],
-        ['title' => 'Unknown']
+        [
+            'title' => $name,
+            'link'  => $link
+        ]
     );
 
     // 🔥 FIX: to‘g‘ri regex
