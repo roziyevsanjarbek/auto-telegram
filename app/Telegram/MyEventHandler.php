@@ -10,97 +10,115 @@ use App\Models\QueryMessage;
 
 class MyEventHandler extends EventHandler
 {
-    // PRIVATE (optional)
     public function onUpdateNewMessage($update): void
     {
         $this->handleMessage($update);
     }
 
-    // GROUP / CHANNEL (ENG MUHIM)
     public function onUpdateNewChannelMessage($update): void
     {
         $this->handleMessage($update);
     }
 
     private function handleMessage($update): void
-{
-    $msg = $update['message'] ?? null;
-    if (!$msg) return;
+    {
+        $msg = $update['message'] ?? null;
+        if (!$msg) return;
 
-    // 🔥 FIX: caption ham qo‘shildi
-    $message   = $msg['message'] ?? $msg['media']['caption'] ?? null;
-    $messageId = $msg['id'] ?? null;
-    $peer      = $msg['peer_id'] ?? null;
+        // Message (text yoki caption)
+        $message   = $msg['message'] ?? $msg['media']['caption'] ?? null;
+        $messageId = $msg['id'] ?? null;
+        $peer      = $msg['peer_id'] ?? null;
 
-    \Log::info('RAW MESSAGE', $msg);
+        if (!$message || !$messageId || !$peer) {
+            return;
+        }
 
-   $telegramGroupId = null;
+        // 🔹 Telegram group ID olish
+        $telegramGroupId = $this->resolveTelegramGroupId($peer);
+        if (!$telegramGroupId) return;
 
-    if (is_int($peer)) {
-        $telegramGroupId = $peer;
-    } elseif (is_array($peer)) {
-        if ($peer['_'] === 'peerChannel') {
-            $telegramGroupId = (int) ('-100' . $peer['channel_id']);
-        } elseif ($peer['_'] === 'peerChat') {
-            $telegramGroupId = $peer['chat_id'];
+        $name = 'Unknown';
+        $link = null;
+
+        // 🔹 Chat info olish (optional!)
+        $chat = $this->getChatInfo($peer);
+        \Log::info('Chat info: ' . json_encode($chat));
+
+        if ($chat && empty($chat['left'])) {
+            $name     = $chat['title'] ?? 'Unknown';
+            $username = $chat['username'] ?? null;
+            $link     = $username ? 'https://t.me/' . $username : null;
+        }
+
+        // 🔹 Group DB ga yozish
+        $group = Group::firstOrCreate(
+            ['telegram_id' => $telegramGroupId],
+            [
+                'title' => $name,
+                'link'  => $link
+            ]
+        );
+
+        // 🔹 ID larni topish (ENG MUHIM QISM)
+        preg_match_all('/[A-Z]{3}\d{5}/', $message, $matches);
+
+        foreach ($matches[0] as $customId) {
+
+            $query = Query::where('custom_id', $customId)
+                ->where('is_finished', false)
+                ->first();
+
+            if (!$query) continue;
+
+            // ❗ duplicate oldini olish (bonus)
+            $exists = QueryMessage::where('query_id', $query->id)
+                ->where('message_id', $messageId)
+                ->exists();
+
+            if ($exists) continue;
+
+            QueryMessage::create([
+                'query_id'   => $query->id,
+                'group_id'   => $group->id,
+                'message_id' => $messageId
+            ]);
+
+            $query->increment('count');
         }
     }
 
-    if (!$message || !$messageId || !$telegramGroupId) {
-        \Log::info('DEBUG SKIP', compact('message', 'messageId', 'peer'));
-        return;
-    }
-
-    \Log::info('MESSAGE TEXT', ['text' => $message]);
-
-    $name = 'Unknown';
-    $link = null;
-
-    try {
-        $info = $this->getInfo($peer);
-
-        $name = $info['title'] ?? 'Unknown';
-
-        if (!empty($info['username'])) {
-            $link = 'https://t.me/' . $info['username'];
-        }
-    } catch (\Throwable $e) {
-        \Log::warning('Group info error: ' . $e->getMessage());
-    }
-
-    $group = Group::firstOrCreate(
-        ['telegram_id' => $telegramGroupId],
-        [
-            'title' => $name,
-            'link'  => $link
-        ]
-    );
-
-    // 🔥 FIX: to‘g‘ri regex
-    preg_match_all('/[A-Z]{3}\d{5}/', $message, $matches);
-
-    \Log::info('MATCHES', $matches[0]);
-
-    foreach ($matches[0] as $customId) {
-
-        $query = Query::where('custom_id', $customId)
-            ->where('is_finished', false)
-            ->first();
-
-        if (!$query) {
-            \Log::info("NOT FOUND IN DB: {$customId}");
-            continue;
+    /**
+     * Telegram group ID ni aniqlash
+     */
+    private function resolveTelegramGroupId($peer): ?int
+    {
+        if (is_int($peer)) {
+            return $peer;
         }
 
-        QueryMessage::create([
-            'query_id' => $query->id,
-            'group_id' => $group->id,
-            'message_id' => $messageId
-        ]);
+        if (is_array($peer)) {
+            return match ($peer['_']) {
+                'peerChannel' => (int) ('-100' . $peer['channel_id']),
+                'peerChat'    => $peer['chat_id'],
+                default       => null,
+            };
+        }
 
-        $query->increment('count');
-
-        \Log::info("✅ MATCHED: {$customId}");
+        return null;
     }
-}
+
+    /**
+     * Chat info olish (filter bilan)
+     */
+    private function getChatInfo($peer): ?array
+    {
+        try {
+            $info = $this->getInfo($peer);
+            return $info['Chat'] ?? null;
+        } catch (\Throwable $e) {
+            \Log::warning('Chat info error: ' . $e->getMessage());
+            return null;
+        }
+    }
 }
