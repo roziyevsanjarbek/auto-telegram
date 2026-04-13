@@ -14,7 +14,7 @@ return new class extends Migration
         Schema::create('groups', function (Blueprint $table) {
             $table->id();
             $table->string('title');
-            $table->string('link')->unique();
+            $table->string('link')->nullable()->unique();
             $table->string('telegram_id')->nullable();
             $table->string('status')->default('active');
             $table->timestamps();

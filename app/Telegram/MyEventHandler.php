@@ -45,17 +45,25 @@ class MyEventHandler extends EventHandler
         }
 
         $name = 'Unknown';
+        $link = null;
 
         try {
             $fullInfo = $this->getInfo($peer);
             $name = $fullInfo['title'] ?? 'Unknown';
+
+            if (isset($fullInfo['username'])) {
+                $link = 'https://t.me/' . $fullInfo['username'];
+            }
         } catch (\Throwable $e) {
             \Log::warning('Group info error: ' . $e->getMessage());
         }
 
         $group = Group::firstOrCreate(
             ['telegram_id' => $telegramGroupId],
-            ['title' => $name]
+            [
+                'title' => $name,
+                'link' => $link ?? 'unknown'
+            ]
         );
 
         preg_match_all('/\b[A-Z]{3}\d+\b/', $message, $matches);
