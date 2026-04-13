@@ -23,78 +23,66 @@ class MyEventHandler extends EventHandler
     }
 
     private function handleMessage($update): void
-    {
-        $msg = $update['message'] ?? null;
-        if (!$msg) return;
+{
+    $msg = $update['message'] ?? null;
+    if (!$msg) return;
 
-        $message   = $msg['message'] ?? null;
-        $messageId = $msg['id'] ?? null;
-        $peer      = $msg['peer_id'] ?? null;
+    // 🔥 FIX: caption ham qo‘shildi
+    $message   = $msg['message'] ?? $msg['media']['caption'] ?? null;
+    $messageId = $msg['id'] ?? null;
+    $peer      = $msg['peer_id'] ?? null;
 
-        $telegramGroupId = null;
+    \Log::info('RAW MESSAGE', $msg);
 
-        if (is_array($peer)) {
-            if ($peer['_'] === 'peerChannel') {
-                $telegramGroupId = (int) ('-100' . $peer['channel_id']);
-            } elseif ($peer['_'] === 'peerChat') {
-                $telegramGroupId = $peer['chat_id'];
-            }
-        }
+   $telegramGroupId = null;
 
-        if (!$message || !$messageId || !$telegramGroupId) {
-            \Log::info('DEBUG SKIP', compact('message', 'messageId', 'peer'));
-            return;
-        }
-
-        $name = 'Unknown';
-        $link = null;
-
-        try {
-            $fullInfo = $this->getInfo($peer);
-            $name = $fullInfo['title'] ?? 'Unknown';
-
-            if (isset($fullInfo['username'])) {
-                $link = 'https://t.me/' . $fullInfo['username'];
-            }
-        } catch (\Throwable $e) {
-            \Log::warning('Group info error: ' . $e->getMessage());
-        }
-
-        $group = Group::firstOrCreate(
-            ['telegram_id' => $telegramGroupId],
-            [
-                'title' => $name,
-                'link' => $link
-            ]
-        );
-
-        preg_match_all('/\b[A-Z]{3}\d+\b/', $message, $matches);
-
-        foreach ($matches[0] as $customId) {
-
-            $query = Query::where('custom_id', $customId)
-                ->where('is_finished', false)
-                ->first();
-
-            if (!$query) continue;
-
-            $exists = QueryMessage::where([
-                'query_id' => $query->id,
-                'group_id' => $group->id,
-                'message_id' => $messageId
-            ])->exists();
-
-            if ($exists) continue;
-
-            QueryMessage::create([
-                'query_id' => $query->id,
-                'group_id' => $group->id,
-                'message_id' => $messageId
-            ]);
-
-            $query->increment('count');
-
-            \Log::info("✅ MATCHED: {$customId}");
+    if (is_int($peer)) {
+        $telegramGroupId = $peer;
+    } elseif (is_array($peer)) {
+        if ($peer['_'] === 'peerChannel') {
+            $telegramGroupId = (int) ('-100' . $peer['channel_id']);
+        } elseif ($peer['_'] === 'peerChat') {
+            $telegramGroupId = $peer['chat_id'];
         }
     }
+
+    if (!$message || !$messageId || !$telegramGroupId) {
+        \Log::info('DEBUG SKIP', compact('message', 'messageId', 'peer'));
+        return;
+    }
+
+    \Log::info('MESSAGE TEXT', ['text' => $message]);
+
+    $group = Group::firstOrCreate(
+        ['telegram_id' => $telegramGroupId],
+        ['title' => 'Unknown']
+    );
+
+    // 🔥 FIX: to‘g‘ri regex
+    preg_match_all('/[A-Z]{3}\d{5}/', $message, $matches);
+
+    \Log::info('MATCHES', $matches[0]);
+
+    foreach ($matches[0] as $customId) {
+
+        $query = Query::where('custom_id', $customId)
+            ->where('is_finished', false)
+            ->first();
+
+        if (!$query) {
+            \Log::info("NOT FOUND IN DB: {$customId}");
+            continue;
+        }
+
+        QueryMessage::create([
+            'query_id' => $query->id,
+            'group_id' => $group->id,
+            'message_id' => $messageId
+        ]);
+
+        $query->increment('count');
+
+        \Log::info("✅ MATCHED: {$customId}");
+    }
+}
 }
