@@ -7,16 +7,16 @@ use danog\MadelineProto\EventHandler;
 use App\Models\Query;
 use App\Models\Group;
 use App\Models\QueryMessage;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 
 class MyEventHandler extends EventHandler
 {
-    // PRIVATE (optional)
     public function onUpdateNewMessage($update): void
     {
         $this->handleMessage($update);
     }
 
-    // GROUP / CHANNEL (ENG MUHIM)
     public function onUpdateNewChannelMessage($update): void
     {
         $this->handleMessage($update);
@@ -31,51 +31,36 @@ class MyEventHandler extends EventHandler
         $messageId = $msg['id'] ?? null;
         $peer      = $msg['peer_id'] ?? null;
 
-        $telegramGroupId = null;
-
-        if (is_int($peer)) {
-            $telegramGroupId = $peer;
-        } elseif (is_array($peer) && isset($peer['_']) && $peer['_'] === 'peerChannel') {
-            $telegramGroupId = '-100' . $peer['channel_id'];
-        }
-
-        if (!$message || !$messageId || !$telegramGroupId) {
-            \Log::info('DEBUG SKIP', compact('message', 'messageId', 'peer'));
+        if (!$message || !$messageId || !$peer) {
             return;
         }
 
-        $name = 'Unknown';
-        $link = null;
+        $telegramGroupId = $this->resolvePeerId($peer);
+        if (!$telegramGroupId) return;
 
-        try {
-            $fullInfo = $this->getInfo($peer);
-            $name = $fullInfo['title'] ?? 'Unknown';
+        // 🔥 group cache (DB ni asraydi)
+        $group = Cache::remember("group_{$telegramGroupId}", 3600, function () use ($peer, $telegramGroupId) {
+            return $this->createOrGetGroup($peer, $telegramGroupId);
+        });
 
-            if (isset($fullInfo['username'])) {
-                $link = 'https://t.me/' . $fullInfo['username'];
-            }
-        } catch (\Throwable $e) {
-            \Log::warning('Group info error: ' . $e->getMessage());
-        }
+        // 🔥 regex (case-insensitive)
+        preg_match_all('/\b[a-zA-Z]{3}\d+\b/i', $message, $matches);
 
-        $group = Group::firstOrCreate(
-            ['telegram_id' => $telegramGroupId],
-            [
-                'title' => $name,
-                'link' => $link ?? 'unknown'
-            ]
-        );
+        if (empty($matches[0])) return;
 
-        preg_match_all('/\b[A-Z]{3}\d+\b/', $message, $matches);
+        // 🔥 querylarni oldindan olish (N+1 muammoni yo‘q qiladi)
+        $queries = Query::whereIn('custom_id', $matches[0])
+            ->where('is_finished', false)
+            ->get()
+            ->keyBy('custom_id');
 
         foreach ($matches[0] as $customId) {
 
-            $query = Query::where('custom_id', $customId)
-                ->where('is_finished', false)
-                ->first();
+            if (!isset($queries[$customId])) continue;
 
-            if (!$query) continue;
+            $query = $queries[$customId];
 
+            // 🔥 duplicate check (tezroq)
             $exists = QueryMessage::where([
                 'query_id' => $query->id,
                 'group_id' => $group->id,
@@ -92,7 +77,52 @@ class MyEventHandler extends EventHandler
 
             $query->increment('count');
 
-            \Log::info("✅ MATCHED: {$customId}");
+            Log::info("MATCHED: {$customId}");
         }
+    }
+
+    /**
+     * 🔥 Peer → Telegram ID
+     */
+    private function resolvePeerId($peer): ?int
+    {
+        if (!is_array($peer) || !isset($peer['_'])) {
+            return null;
+        }
+
+        return match ($peer['_']) {
+            'peerChannel' => (int) ('-100' . $peer['channel_id']),
+            'peerChat'    => $peer['chat_id'],
+            default       => null,
+        };
+    }
+
+    /**
+     * 🔥 Group create yoki olish
+     */
+    private function createOrGetGroup($peer, int $telegramGroupId): Group
+    {
+        $name = 'Unknown';
+        $link = null;
+
+        try {
+            $info = $this->getInfo($peer);
+
+            $name = $info['title'] ?? 'Unknown';
+
+            if (!empty($info['username'])) {
+                $link = 'https://t.me/' . $info['username'];
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Group info error: ' . $e->getMessage());
+        }
+
+        return Group::firstOrCreate(
+            ['telegram_id' => $telegramGroupId],
+            [
+                'title' => $name,
+                'link'  => $link
+            ]
+        );
     }
 }
