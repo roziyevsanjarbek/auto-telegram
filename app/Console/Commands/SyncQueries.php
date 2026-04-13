@@ -12,43 +12,28 @@ class SyncQueries extends Command
     protected $description = 'Sync queries from external API';
 
     public function handle()
-    {
-        try {
-            $page = 1;
-            do {
-                $response = Http::withoutVerifying()
-                    ->timeout(15)
-                    ->withToken(config('services.api.token')) // ?? space olib tashla
-                    ->acceptJson()
-                    ->get('https://crm.zanjeer.uz/api/v1/queries', [
-                        'sort' => '-id',
-                        'per_page' => 500,
-                        'page' => $page,
-                    ]);
+{
+    try {
+        $response = Http::withoutVerifying()
+            ->timeout(15)
+            ->acceptJson()
+            ->get('https://crm.zanjeer.uz/api/v1/queries/ids');
 
-                if (!$response->ok()) {
-                    $this->error('API error');
-                    return;
-                }
-
-                $data = $response->json()['data'];
-                $items = $data['data'] ?? [];
-                $lastPage = $data['last_page'] ?? 1;
-
-                foreach ($items as $item) {
-                    ProcessQueryJob::dispatch($item);
-                }
-
-                $this->info("Page {$page} processed." . ' Total: ' . count($items));
-
-                $page++;
-
-            } while ($page <= $lastPage);
-
-        $this->info("All queries processed.");
-
-        } catch (\Throwable $e) {
-            $this->error($e->getMessage());
+        if (!$response->ok()) {
+            $this->error('API error');
+            return;
         }
+
+        $items = $response->json()['data'] ?? [];
+
+        foreach ($items as $item) {
+            ProcessQueryJob::dispatch($item);
+        }
+
+        $this->info("Total processed: " . count($items));
+
+    } catch (\Throwable $e) {
+        $this->error($e->getMessage());
     }
+}
 }

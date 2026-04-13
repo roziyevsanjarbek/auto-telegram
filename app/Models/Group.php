@@ -10,6 +10,7 @@ class Group extends Model
     protected $fillable = [
         'title',
         'telegram_id',
-        'is_active',
+        'status',
+        'link',
     ];
 }

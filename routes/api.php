@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\GroupController;
 use App\Http\Controllers\QueryController;
 use App\Http\Controllers\TelegramAuthController;
 use App\Http\Controllers\TelegramController;
@@ -22,3 +23,6 @@ Route::get('/tg/count', [TelegramController::class, 'count']);
 
 Route::get('/query', [QueryController::class, 'index']);
 Route::get('/query/{id}', [QueryController::class, 'show']);
+
+
+Route::post('/group', [GroupController::class, 'store']);

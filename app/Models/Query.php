@@ -16,7 +16,7 @@ class Query extends Model
         'is_finished',
     ];
 
-    const int STATUS_ATMEN = 17;
+    const  STATUS_ATMEN = 17;
 
     public function isAtmen(): int
     {
